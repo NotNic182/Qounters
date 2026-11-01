@@ -59,6 +59,7 @@ static std::map<int, std::vector<std::pair<Types::Sources, std::string>>> eventS
      }},
     {(int) MetaCore::Events::HealthChanged,
      {
+         {Types::Sources::Text, Sources::Text::PPName},
          {Types::Sources::Text, Sources::Text::HealthName},
          {Types::Sources::Text, Sources::Text::FailsName},
          {Types::Sources::Shape, Sources::Shape::HealthName},

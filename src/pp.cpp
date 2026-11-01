@@ -4,6 +4,7 @@
 #include "GlobalNamespace/BeatmapDifficulty.hpp"
 #include "GlobalNamespace/BeatmapDifficultySerializedMethods.hpp"
 #include "System/Action_1.hpp"
+#include "beatleader.hpp"
 #include "bsml/shared/BSML/MainThreadScheduler.hpp"
 #include "custom-types/shared/delegate.hpp"
 #include "environment.hpp"
@@ -15,7 +16,7 @@
 using namespace Qounters;
 using namespace GlobalNamespace;
 
-static BeatmapKey latestRequest = {nullptr, 0, nullptr};
+static uint64_t requestGeneration = 0;
 
 bool PP::blSongValid = false;
 MetaCore::PP::BLSongDiff PP::latestBeatleaderSong;
@@ -25,8 +26,7 @@ MetaCore::PP::SSSongDiff PP::latestScoresaberSong;
 bool PP::IsRankedBL() {
     if (Environment::InSettings())
         return blSongValid;
-    // https://github.com/BeatLeader/beatleader-qmod/blob/b5b7dc811f6b39f52451d2dad9ebb70f3ad4ad57/src/UI/LevelInfoUI.cpp#L78
-    return blSongValid && latestBeatleaderSong.Stars > 0 && latestBeatleaderSong.RankedStatus == 3;
+    return BeatLeader::IsRanked();
 }
 
 bool PP::IsRankedSS() {
@@ -36,18 +36,16 @@ bool PP::IsRankedSS() {
 }
 
 float PP::CalculateBL(float percentage, GameplayModifiers* modifiers, bool failed) {
+    if (!Environment::InSettings())
+        return BeatLeader::Calculate(percentage, modifiers, failed);
     if (!blSongValid)
         return 0;
 
-    if (Environment::InSettings()) {
-        MetaCore::PP::BLSongDiff customDiff = {};
-        customDiff.Pass = 0.8 * settingsStarsBL;
-        customDiff.Acc = settingsStarsBL;
-        customDiff.Tech = 0.5 * settingsStarsBL;
-        return MetaCore::PP::Calculate(customDiff, percentage, modifiers, failed);
-    }
-
-    return MetaCore::PP::Calculate(latestBeatleaderSong, percentage, modifiers, failed);
+    MetaCore::PP::BLSongDiff customDiff = {};
+    customDiff.Pass = 0.8 * settingsStarsBL;
+    customDiff.Acc = settingsStarsBL;
+    customDiff.Tech = 0.5 * settingsStarsBL;
+    return MetaCore::PP::Calculate(customDiff, percentage, modifiers, failed);
 }
 
 float PP::CalculateSS(float percentage, GameplayModifiers* modifiers, bool failed) {
@@ -69,27 +67,44 @@ static void OnMapInfo(std::optional<MetaCore::PP::BLSongDiff> bl, std::optional<
 }
 
 void PP::GetMapInfo(BeatmapKey map) {
-    if (!map.IsValid())
+    if (Environment::InSettings())
         return;
+    if (!map.IsValid()) {
+        Reset();
+        return;
+    }
 
     blSongValid = false;
     ssSongValid = false;
-    latestRequest = map;
+    auto ticket = ++requestGeneration;
+    BeatLeader::GetMapInfo(map);
     Events::BroadcastQountersEvent(Events::MapInfo);
 
-    MetaCore::PP::GetMapInfo(map, [map](std::optional<MetaCore::PP::BLSongDiff> bl, std::optional<MetaCore::PP::SSSongDiff> ss) {
-        if (latestRequest.Equals(map))
-            OnMapInfo(bl, ss);
+    MetaCore::PP::GetMapInfo(map, [ticket](std::optional<MetaCore::PP::BLSongDiff> bl, std::optional<MetaCore::PP::SSSongDiff> ss) {
+        BSML::MainThreadScheduler::Schedule([ticket, bl = std::move(bl), ss]() {
+            if (ticket == requestGeneration && !Environment::InSettings())
+                OnMapInfo(bl, ss);
+        });
     });
 }
 
 void PP::Reset() {
     blSongValid = false;
     ssSongValid = false;
-    latestRequest = {nullptr, 0, nullptr};
+    ++requestGeneration;
+    BeatLeader::Reset();
     Events::BroadcastQountersEvent(Events::MapInfo);
 }
 
 ON_EVENT(MetaCore::Events::MapSelected) {
     PP::GetMapInfo(MetaCore::Songs::GetSelectedKey());
+}
+
+ON_EVENT(MetaCore::Events::MapDeselected) {
+    if (!Environment::InSettings())
+        PP::Reset();
+}
+
+ON_EVENT(MetaCore::Events::SoftRestart) {
+    PP::Reset();
 }

@@ -1,5 +1,6 @@
 #include "sources.hpp"
 
+#include "beatleader.hpp"
 #include "customtypes/components.hpp"
 #include "environment.hpp"
 #include "metacore/shared/internals.hpp"
@@ -355,6 +356,8 @@ std::string Sources::Text::GetNotes(UnparsedJSON unparsed) {
 std::string Sources::Text::GetPP(UnparsedJSON unparsed) {
     auto opts = unparsed.Parse<PP>();
 
+    if (opts.Leaderboard == (int) PP::Leaderboards::BeatLeader && !Environment::InSettings())
+        return BeatLeader::GetText(opts.Decimals);
     return Strings::FormatDecimals(PP::GetRankedPP(opts.Leaderboard), opts.Decimals) + " PP";
 }
 std::string Sources::Text::GetSaberSpeed(UnparsedJSON unparsed) {
